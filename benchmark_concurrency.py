@@ -102,10 +102,10 @@ class MiniMaxConcurrencyBenchmark:
                 total_output_tokens = len(output_chunks)
 
             latency_ms = (end_time - start_time) * 1000
-            ttft_ms = (first_token_time - start_time) * 1000 if first_token_time else None
+            ttft_ms = (first_token_time - start_time) * 1000 if first_token_time else latency_ms
 
             # 计算 TPOT (排除首token)
-            decoding_time_ms = latency_ms - ttft_ms if ttft_ms else latency_ms
+            decoding_time_ms = latency_ms - ttft_ms if ttft_ms and ttft_ms < latency_ms else 0
             if total_output_tokens > 1:
                 tpot_ms = decoding_time_ms / (total_output_tokens - 1)
             else:
@@ -172,11 +172,11 @@ class MiniMaxConcurrencyBenchmark:
 
                     if result.get("success"):
                         success_count += 1
-                        tokens = result.get('tokens', 0)
-                        ttft = result.get('ttft_ms', 0)
-                        tpot = result.get('tpot_ms', 0)
-                        latency = result.get('latency_ms', 0)
-                        tps = result.get('tps', 0)
+                        tokens = result.get('tokens', 0) or 0
+                        ttft = result.get('ttft_ms', 0) or 0
+                        tpot = result.get('tpot_ms', 0) or 0
+                        latency = result.get('latency_ms', 0) or 0
+                        tps = result.get('tps', 0) or 0
                         from datetime import datetime
                         current_time = datetime.now().strftime('%H:%M:%S')
                         print(f"[{completed:3d}/{num_requests}] {current_time} 成功 - Tokens: {tokens:4d} | TTFT: {ttft:6.0f}ms | TPOT: {tpot:5.1f}ms | TPS: {tps:5.1f}", flush=True)

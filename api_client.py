@@ -111,15 +111,22 @@ class APIClient:
         is_first = True
         for chunk in response:
             content = ""
-            if hasattr(chunk, 'delta') and hasattr(chunk.delta, 'text'):
+            # Anthropic SDK 流式事件类型: content_block_delta, message_delta, etc.
+            if hasattr(chunk, 'type'):
+                if chunk.type == 'content_block_delta' and hasattr(chunk, 'delta'):
+                    content = getattr(chunk.delta, 'text', '')
+                elif chunk.type == 'content_block_start' and hasattr(chunk, 'content_block'):
+                    content = getattr(chunk.content_block, 'text', '')
+            elif hasattr(chunk, 'delta') and hasattr(chunk.delta, 'text'):
                 content = chunk.delta.text
 
-            yield StreamChunk(
-                content=content,
-                is_first=is_first,
-                is_last=False
-            )
-            is_first = False
+            if content:
+                yield StreamChunk(
+                    content=content,
+                    is_first=is_first,
+                    is_last=False
+                )
+                is_first = False
 
         # 发送结束标记
         yield StreamChunk(content="", is_first=False, is_last=True)
