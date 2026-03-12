@@ -1,0 +1,28 @@
+# 配置文件（包含敏感信息）
+config.py
+
+# 日志和测试结果
+log/
+*.log
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# 虚拟环境
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
