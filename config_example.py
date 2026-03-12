@@ -17,9 +17,14 @@ import os
 # 可以从环境变量读取，或直接填写
 MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY", "your-api-key-here")
 
-# API 基础地址
-# 国内版: https://api.minimaxi.com/v1
-# 国际版: https://api.minimax.io/v1
+# API 风格: 'openai' 或 'anthropic'
+# - 'openai': 使用 OpenAI SDK 风格 (chat.completions.create)
+# - 'anthropic': 使用 Anthropic SDK 风格 (messages.create, Claude 兼容)
+API_STYLE = "openai"
+
+# API 基础地址（根据 API_STYLE 自动选择，也可手动指定）
+# OpenAI 风格: https://api.minimaxi.com/v1
+# Anthropic 风格: https://api.minimaxi.com/anthropic
 BASE_URL = "https://api.minimaxi.com/v1"
 
 # ==================== 模型配置 ====================

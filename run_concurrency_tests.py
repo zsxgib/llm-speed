@@ -17,7 +17,10 @@ from datetime import datetime
 from benchmark_concurrency import MiniMaxConcurrencyBenchmark
 
 # 导入配置
-from config import MODEL, BASE_URL, MINIMAX_API_KEY, CONCURRENCY_LEVELS, REQUESTS_PER_LEVEL
+from config import MODEL, BASE_URL, MINIMAX_API_KEY, API_STYLE, CONCURRENCY_LEVELS, REQUESTS_PER_LEVEL
+
+
+STYLE = API_STYLE  # 使用全局变量
 
 
 def run_concurrency_test(concurrency: int, requests: int, current: int = 1, total: int = 6) -> dict:
@@ -28,7 +31,8 @@ def run_concurrency_test(concurrency: int, requests: int, current: int = 1, tota
 
     benchmark = MiniMaxConcurrencyBenchmark(
         api_key=MINIMAX_API_KEY,
-        base_url=BASE_URL
+        base_url=BASE_URL,
+        style=API_STYLE
     )
 
     try:
@@ -111,6 +115,8 @@ def main():
     print(f"并发梯度测试")
     print(f"=" * 60)
     print(f"模型: {MODEL}")
+    print(f"API风格: {API_STYLE}")
+    print(f"API地址: {BASE_URL}")
     print(f"测试并发度: {CONCURRENCY_LEVELS}")
     print(f"每轮请求数: {REQUESTS_PER_LEVEL}")
     print(f"总请求数: {total_requests}")

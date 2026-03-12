@@ -4,7 +4,7 @@ MiniMax LLM 单请求性能测试
 测试指标：TTFT、TPOT、Latency、TPS
 
 配置来源：
-- config.py: API密钥、模型、测试参数
+- config.py: API密钥、模型、测试参数、API风格
 - prompts.py: 测试提示词列表（20种）
 """
 
@@ -17,15 +17,10 @@ from dataclasses import dataclass
 from typing import List, Optional
 from datetime import datetime
 
-try:
-    from openai import OpenAI
-except ImportError:
-    print("请先安装依赖: pip install openai")
-    exit(1)
-
-# 导入配置
-from config import MINIMAX_API_KEY, MODEL, BASE_URL, NUM_REQUESTS, WARMUP_REQUESTS
+# 导入配置和客户端
+from config import MINIMAX_API_KEY, MODEL, BASE_URL, API_STYLE, NUM_REQUESTS, WARMUP_REQUESTS
 from prompts import PROMPTS
+from api_client import APIClient
 
 
 @dataclass
@@ -42,15 +37,18 @@ class RequestMetrics:
 
 
 class MiniMaxBenchmark:
-    def __init__(self, api_key: str = MINIMAX_API_KEY, base_url: str = BASE_URL):
+    def __init__(self, api_key: str = MINIMAX_API_KEY, base_url: str = BASE_URL, style: str = API_STYLE):
         self.api_key = api_key
         if not self.api_key or self.api_key == "your-api-key-here":
             raise ValueError("请设置全局变量 MINIMAX_API_KEY 或环境变量")
 
-        self.client = OpenAI(
-            api_key=self.api_key,
-            base_url=base_url
+        self.client = APIClient(
+            api_key=api_key,
+            base_url=base_url,
+            style=style,
+            model=MODEL
         )
+        self.style = style
 
     def measure_request(
         self,
@@ -61,41 +59,25 @@ class MiniMaxBenchmark:
         """
         测量单次请求的各项性能指标
         """
-        messages = [{"role": "user", "content": prompt}]
-
         # 记录各个时间点
         start_time = time.perf_counter()
         first_token_time = None
         token_times = []
         output_chunks = []
-        total_output_tokens = 0
 
         try:
             # 流式请求以精确测量 TTFT
-            response = self.client.chat.completions.create(
-                model=model,
-                messages=messages,
-                # max_tokens=max_tokens,  # 不限制输出长度
-                temperature=temperature,
-                stream=True,
-                stream_options={"include_usage": True}
-            )
-
-            for chunk in response:
+            for chunk in self.client.chat_stream(prompt):
                 current_time = time.perf_counter()
 
-                # 从usage中获取准确的token数（通常在最后一个chunk）
-                if chunk.usage and chunk.usage.completion_tokens:
-                    total_output_tokens = chunk.usage.completion_tokens
-
                 # 记录首token时间
-                if first_token_time is None and chunk.choices and chunk.choices[0].delta.content:
+                if first_token_time is None and chunk.is_first and chunk.content:
                     first_token_time = current_time
 
-                # 记录每个chunk的时间（用于计算TPOT）
-                if chunk.choices and chunk.choices[0].delta.content:
+                # 记录每个chunk的时间和内容
+                if chunk.content:
                     token_times.append(current_time)
-                    output_chunks.append(chunk.choices[0].delta.content)
+                    output_chunks.append(chunk.content)
 
             end_time = time.perf_counter()
 
@@ -105,18 +87,14 @@ class MiniMaxBenchmark:
 
             output_text = "".join(output_chunks)
 
-            # 计算输出token数：优先使用API返回的准确token数，否则按字符估算
-            # 中文字符约1-2个token，英文约4字符/token，这里用粗略估算
-            if total_output_tokens > 0:
-                output_tokens = total_output_tokens
-            else:
-                # 粗略估算：中文按2字符/token，英文按4字符/token
-                import re
-                chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', output_text))
-                other_chars = len(output_text) - chinese_chars
-                output_tokens = chinese_chars + other_chars // 4
-                if output_tokens == 0:
-                    output_tokens = len(output_chunks)
+            # 计算输出token数：按字符估算（API不统一返回usage）
+            # 中文字符约1-2个token，英文约4字符/token
+            import re
+            chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', output_text))
+            other_chars = len(output_text) - chinese_chars
+            output_tokens = chinese_chars + other_chars // 4
+            if output_tokens == 0:
+                output_tokens = len(output_chunks)
 
             input_tokens = len(prompt.split())  # 粗略估算
 
@@ -160,6 +138,7 @@ class MiniMaxBenchmark:
         """
         print(f"\n{'='*60}")
         print(f"模型: {model}")
+        print(f"API风格: {self.style}")
         print(f"测试次数: {num_requests} (预热: {warmup})")
         print(f"Prompt池: {len(PROMPTS)} 种")
         print(f"{'='*60}\n")

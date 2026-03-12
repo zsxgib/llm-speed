@@ -19,19 +19,14 @@ from typing import List, Dict, Optional
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-try:
-    from openai import OpenAI
-except ImportError:
-    print("请先安装依赖: pip install openai")
-    exit(1)
-
-# 导入配置
+# 导入配置和客户端
 from config import (
-    MINIMAX_API_KEY, MODEL, BASE_URL,
+    MINIMAX_API_KEY, MODEL, BASE_URL, API_STYLE,
     TEST_MODE, NUM_REQUESTS, CONCURRENCY,
     DURATION_SEC, TARGET_QPS
 )
 from prompts import PROMPTS
+from api_client import APIClient
 
 
 @dataclass
@@ -51,20 +46,26 @@ class ConcurrencyMetrics:
 
 
 class MiniMaxConcurrencyBenchmark:
-    def __init__(self, api_key: str = MINIMAX_API_KEY, base_url: str = BASE_URL):
+    def __init__(self, api_key: str = MINIMAX_API_KEY, base_url: str = BASE_URL, style: str = API_STYLE):
         self.api_key = api_key
         if not self.api_key or self.api_key == "your-api-key-here":
             raise ValueError("请设置全局变量 MINIMAX_API_KEY 或环境变量")
 
         self.base_url = base_url
+        self.style = style
 
     def get_random_prompt(self) -> str:
         """随机选择一个prompt"""
         return random.choice(PROMPTS)
 
-    def create_client(self) -> OpenAI:
+    def create_client(self) -> APIClient:
         """创建新的客户端实例（线程安全）"""
-        return OpenAI(api_key=self.api_key, base_url=self.base_url)
+        return APIClient(
+            api_key=self.api_key,
+            base_url=self.base_url,
+            style=self.style,
+            model=MODEL
+        )
 
     def single_request(self, model: str, request_id: int) -> Optional[Dict]:
         """
@@ -72,47 +73,33 @@ class MiniMaxConcurrencyBenchmark:
         """
         client = self.create_client()
         prompt = self.get_random_prompt()
-        messages = [{"role": "user", "content": prompt}]
 
         start_time = time.perf_counter()
         first_token_time = None
         output_chunks = []
-        total_output_tokens = 0
 
         try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=0.7,
-                stream=True,
-                stream_options={"include_usage": True}
-            )
-
-            for chunk in response:
+            for chunk in client.chat_stream(prompt):
                 current_time = time.perf_counter()
 
-                # 从usage中获取准确的token数
-                if chunk.usage and chunk.usage.completion_tokens:
-                    total_output_tokens = chunk.usage.completion_tokens
-
-                if first_token_time is None and chunk.choices and chunk.choices[0].delta.content:
+                # 记录首token时间
+                if first_token_time is None and chunk.is_first and chunk.content:
                     first_token_time = current_time
 
-                if chunk.choices and chunk.choices[0].delta.content:
-                    output_chunks.append(chunk.choices[0].delta.content)
+                # 收集输出内容
+                if chunk.content:
+                    output_chunks.append(chunk.content)
 
             end_time = time.perf_counter()
 
-            # 计算token数
+            # 计算token数（按字符估算）
+            import re
+            output_text = "".join(output_chunks)
+            chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', output_text))
+            other_chars = len(output_text) - chinese_chars
+            total_output_tokens = chinese_chars + other_chars // 4
             if total_output_tokens == 0:
-                # 粗略估算
-                import re
-                output_text = "".join(output_chunks)
-                chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', output_text))
-                other_chars = len(output_text) - chinese_chars
-                total_output_tokens = chinese_chars + other_chars // 4
-                if total_output_tokens == 0:
-                    total_output_tokens = len(output_chunks)
+                total_output_tokens = len(output_chunks)
 
             latency_ms = (end_time - start_time) * 1000
             ttft_ms = (first_token_time - start_time) * 1000 if first_token_time else None
